@@ -10,7 +10,7 @@ export function MostSelling() {
 
   useEffect(() => {
     axios
-      .get("http://localhost:5000/products")
+      .get("http://localhost:3000/products")
       .then((res) => {
         const bestSellers = res.data
           .filter((p) => p.topSelling === true) // only top-selling

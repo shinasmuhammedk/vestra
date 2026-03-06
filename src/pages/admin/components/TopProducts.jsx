@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Star, TrendingUp, AlertCircle } from 'lucide-react';
+import api from '../../../api/api';
 
 const TopProducts = () => {
   const [topProducts, setTopProducts] = useState([]);
@@ -14,38 +15,29 @@ const TopProducts = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [usersRes, productsRes] = await Promise.all([
-        fetch('http://localhost:5000/users'),
-        fetch('http://localhost:5000/products'),
+      const [ordersRes, productsRes] = await Promise.all([
+        api.get('/admin/orders'),
+        api.get('/products'),
       ]);
 
-      if (!usersRes.ok || !productsRes.ok) {
-        throw new Error('Failed to fetch data');
-      }
-
-      const [users, products] = await Promise.all([
-        usersRes.json(),
-        productsRes.json(),
-      ]);
-
-      const allOrders = users.flatMap(user => user.orders || []);
+      const orders = ordersRes.data.data || ordersRes.data;
+      const products = productsRes.data.data || productsRes.data;
 
       const productSales = products.map(product => {
-        const salesCount = allOrders.reduce((count, order) => {
-          const productInOrder = order.products?.find(p => p.id === product.id);
-          // Handle cases where quantity might be undefined or invalid
+        const salesCount = orders.reduce((count, order) => {
+          const productInOrder = (order.items || order.products || []).find(
+            p => p.product_id === product.id || p.id === product.id
+          );
           const quantity = productInOrder ? (Number(productInOrder.quantity) || 1) : 0;
           return count + quantity;
         }, 0);
 
-        // Ensure price is a valid number
         const price = Number(product.price) || 0;
-        const revenue = salesCount * price;
 
         return {
           ...product,
           sales: salesCount,
-          revenue: revenue,
+          revenue: salesCount * price,
         };
       });
 
@@ -65,16 +57,7 @@ const TopProducts = () => {
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 max-w-md mx-auto transition-all hover:shadow-xl">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          {/* <Star className="text-yellow-400" size={20} /> */}
-          Top Products
-        </h3>
-        {/* <button 
-          onClick={fetchTopProducts}
-          className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          Refresh
-        </button> */}
+        <h3 className="text-xl font-bold text-gray-900">Top Products</h3>
       </div>
 
       {isLoading && (
@@ -82,7 +65,6 @@ const TopProducts = () => {
           {[...Array(4)].map((_, index) => (
             <div key={index} className="animate-pulse flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-6 h-6 bg-gray-200 rounded-full"></div>
                 <div className="w-10 h-10 bg-gray-200 rounded-lg"></div>
                 <div className="space-y-2">
                   <div className="w-24 h-4 bg-gray-200 rounded"></div>
@@ -106,30 +88,25 @@ const TopProducts = () => {
       )}
 
       {!isLoading && !error && topProducts.length === 0 && (
-        <div className="text-center text-gray-500 py-4">
-          No products available
-        </div>
+        <div className="text-center text-gray-500 py-4">No products available</div>
       )}
 
       {!isLoading && !error && topProducts.length > 0 && (
         <div className="space-y-4">
-          {topProducts.map((product, index) => (
-            <div 
-              key={product.id} 
+          {topProducts.map((product) => (
+            <div
+              key={product.id}
               className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-center gap-4">
-                {/* <span className="text-sm font-semibold text-gray-600 w-6">
-                  {index + 1}
-                </span> */}
                 <img
-                  src={product.image}
+                  src={product.image_url || product.image}
                   alt={product.name}
                   className="w-12 h-12 rounded-lg object-cover border border-gray-100"
                   loading="lazy"
                   onError={(e) => {
                     e.target.src = '/fallback-image.jpg';
-                    e.target.onerror = null; // Prevent infinite loop
+                    e.target.onerror = null;
                   }}
                 />
                 <div>
@@ -139,7 +116,7 @@ const TopProducts = () => {
               </div>
               <div className="text-right">
                 <p className="text-sm font-bold text-gray-900">
-                  ${product.revenue.toLocaleString('en-US', {
+                  ₹{product.revenue.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}

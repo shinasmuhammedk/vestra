@@ -19,7 +19,7 @@ export const useBlockCheck = () => {
         const userId = userData.id;
 
         // ✅ Fetch user data from backend
-        const res = await axios.get(`http://localhost:5000/users/${userId}`);
+        const res = await axios.get(`http://localhost:3000/users/${userId}`);
         const user = res.data;
 
         // ✅ If user is blocked

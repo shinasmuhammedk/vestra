@@ -1,385 +1,397 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import axios from "axios";
 import { useEffect, useState, useRef } from "react";
 import {
-  FaArrowLeft,
-  FaCreditCard,
-  FaMapMarkerAlt,
-  FaUser,
-  FaPhone,
-  FaEnvelope,
+    FaArrowLeft,
+    FaMapMarkerAlt,
+    FaPlus,
+    FaShoppingBag,
+    FaCreditCard,
 } from "react-icons/fa";
 import { toast } from "react-toastify";
 import Navbar from "../navbar/Navbar";
 
 function BuyNow() {
-  const location = useLocation();
-  const navigate = useNavigate();
+    const navigate = useNavigate();
+    const { productId } = useParams();
+    const location = useLocation();
 
-  // Handle both single and multiple products
-  const { product, products, isMultiple, fromCart } = location.state || {};
+    // Check for both cart flow and direct buy now flow
+    const fromCart = location.state?.fromCart;
+    const cartProducts = location.state?.products;
 
-  const [formData, setFormData] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    zipCode: "",
-    country: "",
-    paymentMethod: "card",
-  });
+    // FIX: Get selectedSize and quantity from ProductDetail navigation state
+    const passedProduct = location.state?.product;
+    const passedSize = location.state?.selectedSize;
+    const passedQuantity = location.state?.quantity;
 
-  const [loading, setLoading] = useState(false);
-  const toastShown = useRef(false); // ✅ prevents duplicate toast
+    const [products, setProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [addresses, setAddresses] = useState([]);
+    const [selectedAddressId, setSelectedAddressId] = useState("");
+    const [showNewAddressForm, setShowNewAddressForm] = useState(false);
+    const [newAddress, setNewAddress] = useState({
+        name: "", phone: "", address: "", city: "", state: "", zip_code: "", country: "",
+    });
+    const [placingOrder, setPlacingOrder] = useState(false);
 
-  useEffect(() => {
-    if (toastShown.current) return; // Prevent running twice
+    const token = sessionStorage.getItem("access_token");
+    const API_URL = "http://localhost:3000";
 
-    if ((!product && !products) || (!isMultiple && !product)) {
-      toast.warn("No product selected for purchase!", { theme: "colored" });
-      toastShown.current = true;
-      navigate("/shop");
-      return;
-    }
+    const dataLoaded = useRef(false);
 
-    const userId = localStorage.getItem("userId");
-    if (userId) fetchUserDetails(userId);
-  }, [product, products, isMultiple, navigate]);
-
-  const fetchUserDetails = async (userId) => {
-    try {
-      const res = await axios.get(`http://localhost:5000/users/${userId}`);
-      const user = res.data;
-
-      if (user.isBlock === true) {
-        if (!toastShown.current) {
-          toast.error("Your account has been blocked. You cannot place orders.", {
-            theme: "colored",
-          });
-          toastShown.current = true;
+    useEffect(() => {
+        if (!token) {
+            toast.error("Please login to continue");
+            navigate("/login");
+            return;
         }
-        navigate("/shop");
-        return;
-      }
 
-      setFormData((prev) => ({
-        ...prev,
-        fullName: user.name || "",
-        email: user.email || "",
-      }));
-    } catch (err) {
-      console.error("Error fetching user details:", err);
+        if (dataLoaded.current) return;
+
+        if (fromCart && cartProducts?.length > 0) {
+            // Cart flow
+            setProducts(cartProducts.map(item => ({
+                productId: item.product.id,
+                name: item.product.name,
+                price: item.product.price,
+                image_url: item.product.image_url,
+                size: item.size,
+                quantity: item.quantity
+            })));
+            setLoading(false);
+            dataLoaded.current = true;
+        } else if (passedProduct && passedSize) {
+            // FIX: Direct Buy Now flow - use passed data from ProductDetail
+            console.log("DEBUG: Loading from passed state:", { passedProduct, passedSize, passedQuantity });
+
+            // Process sizes for display
+            let availableSizes = [];
+            if (passedProduct.sizes && passedProduct.sizes.length > 0) {
+                if (typeof passedProduct.sizes[0] === 'object') {
+                    availableSizes = passedProduct.sizes.map(s => ({
+                        value: s.size || s.name,
+                        quantity: s.quantity || 0,
+                        id: s.id
+                    }));
+                } else {
+                    availableSizes = passedProduct.sizes.map(s => ({ value: s, quantity: 10 }));
+                }
+            }
+
+            setProducts([{
+                productId: passedProduct.id,
+                name: passedProduct.name,
+                price: passedProduct.price,
+                image_url: passedProduct.image_url,
+                size: passedSize,        // FIX: Use the size user selected
+                quantity: passedQuantity || 1,  // FIX: Use the quantity user selected
+                availableSizes: availableSizes
+            }]);
+
+            setLoading(false);
+            dataLoaded.current = true;
+        } else if (productId) {
+            // Fallback: fetch from API if no state passed (e.g., page refresh)
+            console.log("DEBUG: No state passed, fetching from API");
+            fetchSingleProduct(productId);
+        } else {
+            toast.error("No products selected");
+            navigate("/products");
+        }
+
+        fetchAddresses();
+    }, [productId, fromCart, cartProducts, passedProduct, passedSize, passedQuantity, navigate, token]);
+
+    const fetchSingleProduct = async (id) => {
+        try {
+            const res = await axios.get(`${API_URL}/products/${id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            const product = res.data.data;
+
+            let availableSizes = [];
+            let defaultSize = "";
+
+            if (product.sizes && product.sizes.length > 0) {
+                if (typeof product.sizes[0] === 'object') {
+                    availableSizes = product.sizes.map(s => ({
+                        value: s.size || s.name,
+                        quantity: s.quantity || 0,
+                        id: s.id
+                    }));
+                    const maxStockSize = availableSizes.reduce((prev, current) =>
+                        (prev.quantity > current.quantity) ? prev : current
+                    );
+                    defaultSize = maxStockSize.value;
+                } else {
+                    availableSizes = product.sizes.map(s => ({ value: s, quantity: 10 }));
+                    defaultSize = product.sizes[0];
+                }
+            }
+
+            const productData = {
+                productId: product.id,
+                name: product.name,
+                price: product.price,
+                image_url: product.image_url,
+                size: defaultSize,
+                quantity: 1,
+                availableSizes: availableSizes
+            };
+
+            setProducts([productData]);
+            dataLoaded.current = true;
+
+        } catch (err) {
+            console.error("DEBUG: Fetch product error:", err);
+            toast.error("Failed to load product");
+            navigate("/products");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const updateProductSize = (size) => {
+        setProducts(prev => prev.map(p => ({ ...p, size })));
+    };
+
+    const fetchAddresses = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/user/address`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const addrList = res.data.data || [];
+            setAddresses(addrList);
+            if (addrList.length > 0) setSelectedAddressId(addrList[0].id);
+        } catch (err) {
+            toast.error("Failed to load addresses");
+        }
+    };
+
+    const handlePlaceOrder = async () => {
+        if (!selectedAddressId) {
+            toast.error("Please select a delivery address");
+            return;
+        }
+
+        const product = products[0];
+
+        if (!product?.size) {
+            toast.error("Please select a size");
+            return;
+        }
+
+        setPlacingOrder(true);
+
+        try {
+            if (fromCart) {
+                await axios.post(
+                    `${API_URL}/user/orders`,
+                    { type: "cart", address_id: selectedAddressId },
+                    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+                );
+            } else {
+                console.log("DEBUG: Placing order with size:", product.size);
+
+                await axios.post(
+                    `${API_URL}/user/orders`,
+                    {
+                        type: "direct",
+                        product_id: product.productId,
+                        quantity: product.quantity,
+                        size: product.size,  // This will be the correct selected size
+                        address_id: selectedAddressId
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            "Content-Type": "application/json"
+                        }
+                    }
+                );
+            }
+
+            toast.success("🎉 Order placed successfully!");
+            navigate("/orders");
+        } catch (err) {
+            console.error("DEBUG: Order error:", err.response?.data);
+            toast.error(err.response?.data?.message || "Failed to place order");
+        } finally {
+            setPlacingOrder(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <>
+                <Navbar />
+                <div className="min-h-screen flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                </div>
+            </>
+        );
     }
-  };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
+    const product = products[0];
 
-  const handlePlaceOrder = async (e) => {
-    e.preventDefault();
-
-    if (
-      !formData.fullName.trim() ||
-      !formData.email.trim() ||
-      !formData.phone.trim() ||
-      !formData.address.trim()
-    ) {
-      toast.warn("Please fill in all required fields!", { theme: "colored" });
-      return;
-    }
-
-    const userId = localStorage.getItem("userId");
-    if (!userId) {
-      toast.error("Please login to place an order!", { theme: "colored" });
-      navigate("/login");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const orderProducts = isMultiple ? products : [product];
-
-      const order = {
-        id: Date.now().toString(),
-        userId,
-        products: orderProducts.map((p) => ({
-          id: p.id,
-          name: p.name,
-          image: p.image,
-          kit: p.kit,
-          year: p.year,
-          price: p.price,
-          selectedSize: p.selectedSize,
-          quantity: p.quantity,
-        })),
-        shippingDetails: formData,
-        paymentMethod: formData.paymentMethod,
-        totalAmount: orderProducts
-          .reduce((acc, p) => acc + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0)
-          .toFixed(2),
-        orderDate: new Date().toISOString(),
-        status: "pending",
-      };
-
-      // Fetch current user
-      const userRes = await axios.get(`http://localhost:5000/users/${userId}`);
-      const user = userRes.data;
-
-      if (user.isBlock === true) {
-        toast.error("Your account has been blocked. You cannot place orders.", {
-          theme: "colored",
-        });
-        return;
-      }
-
-      // Add new order
-      const updatedOrders = [...(user.orders || []), order];
-
-      // Remove ordered items from cart (if from cart)
-      let updatedCart = user.cart || [];
-      if (fromCart) {
-        const orderedIds = orderProducts.map((p) => p.id);
-        updatedCart = updatedCart.filter((item) => !orderedIds.includes(item.id));
-      }
-
-      // Update user data
-      await axios.patch(`http://localhost:5000/users/${userId}`, {
-        orders: updatedOrders,
-        cart: updatedCart,
-      });
-
-      // Update product stock
-      for (const p of orderProducts) {
-        const productRes = await axios.get(`http://localhost:5000/products/${p.id}`);
-        const current = productRes.data;
-
-        const updatedProduct = {
-          ...current,
-          sizes: {
-            ...current.sizes,
-            [p.selectedSize]: current.sizes[p.selectedSize] - p.quantity,
-          },
-          stock: current.stock - p.quantity,
-        };
-
-        await axios.put(`http://localhost:5000/products/${p.id}`, updatedProduct);
-      }
-
-      toast.success("🎉 Order placed successfully!", { theme: "colored" });
-      navigate("/orders");
-    } catch (err) {
-      console.error("Error placing order:", err);
-      toast.error("Error placing order. Please try again.", { theme: "colored" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const items = isMultiple ? products : [product];
-  const subtotal = items.reduce((acc, p) => acc + p.price * p.quantity, 0);
-  const shippingFee = 5.99;
-  const grandTotal = (subtotal + shippingFee).toFixed(2);
-
-  if (!items || items.length === 0)
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <p className="text-xl text-gray-600">Loading...</p>
-      </div>
+        <>
+            <Navbar />
+            <div className="min-h-screen bg-gray-50 py-8">
+                <div className="max-w-6xl mx-auto px-4">
+                    <button onClick={() => navigate(fromCart ? "/cart" : -1)} className="flex items-center gap-2 text-gray-600 mb-6 hover:text-gray-800">
+                        <FaArrowLeft /> Back
+                    </button>
+
+                    <h1 className="text-3xl font-bold mb-8">Buy Now</h1>
+
+                    <div className="grid lg:grid-cols-2 gap-8">
+                        {/* Product Section */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm">
+                            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                                <FaShoppingBag /> Product
+                            </h2>
+
+                            {product && (
+                                <div className="flex gap-4 mb-6">
+                                    <img src={product.image_url} alt={product.name} className="w-24 h-24 object-cover rounded-lg" />
+                                    <div>
+                                        <h3 className="font-semibold">{product.name}</h3>
+                                        <p className="text-gray-600">₹{product.price}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SIZE SELECTION */}
+                            {product?.availableSizes && (
+                                <div className="mb-6">
+                                    <label className="block text-sm font-medium mb-2">
+                                        Select Size: <span className="text-blue-600 font-bold text-lg">{product.size}</span>
+                                    </label>
+                                    <div className="flex gap-2 flex-wrap">
+                                        {[...product.availableSizes]
+                                            .sort((a, b) => {
+                                                // Define standard clothing size order
+                                                const sizeOrder = {
+                                                    'XS': 1,
+                                                    'S': 2,
+                                                    'M': 3,
+                                                    'L': 4,
+                                                    'XL': 5,
+                                                    'XXL': 6,
+                                                    '3XL': 7,
+                                                    'XXXL': 8
+                                                };
+
+                                                const valA = a.value?.toString().toUpperCase();
+                                                const valB = b.value?.toString().toUpperCase();
+
+                                                // If both are standard sizes, sort by predefined order
+                                                if (sizeOrder[valA] && sizeOrder[valB]) {
+                                                    return sizeOrder[valA] - sizeOrder[valB];
+                                                }
+
+                                                // Standard sizes come before non-standard
+                                                if (sizeOrder[valA]) return -1;
+                                                if (sizeOrder[valB]) return 1;
+
+                                                // For numeric sizes or other strings, sort numerically if possible, alphabetically otherwise
+                                                const numA = parseFloat(valA);
+                                                const numB = parseFloat(valB);
+
+                                                if (!isNaN(numA) && !isNaN(numB)) {
+                                                    return numA - numB;
+                                                }
+
+                                                return valA.localeCompare(valB);
+                                            })
+                                            .map((sizeObj, idx) => (
+                                                <button
+                                                    key={`size-${sizeObj.value}-${idx}`}
+                                                    type="button"
+                                                    onClick={() => updateProductSize(sizeObj.value)}
+                                                    className={`px-4 py-2 border-2 rounded-lg ${product.size === sizeObj.value
+                                                            ? "bg-blue-600 text-white border-blue-600"
+                                                            : "bg-white border-gray-300 hover:bg-gray-50"
+                                                        } ${sizeObj.quantity <= 0 ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                    disabled={sizeObj.quantity <= 0}
+                                                >
+                                                    <div className="font-bold">{sizeObj.value}</div>
+                                                    <div className="text-xs opacity-75">{sizeObj.quantity} left</div>
+                                                </button>
+                                            ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* QUANTITY */}
+                            {!fromCart && (
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium mb-2">Quantity</label>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => setProducts(prev => prev.map(p => ({ ...p, quantity: Math.max(1, p.quantity - 1) })))}
+                                            className="w-8 h-8 border rounded"
+                                        >-</button>
+                                        <span className="font-bold w-8 text-center">{product.quantity}</span>
+                                        <button
+                                            onClick={() => setProducts(prev => prev.map(p => ({ ...p, quantity: p.quantity + 1 })))}
+                                            className="w-8 h-8 border rounded"
+                                        >+</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="border-t pt-4 mt-6">
+                                <div className="flex justify-between text-xl font-bold">
+                                    <span>Total</span>
+                                    <span>₹{product.price * product.quantity}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Address Section */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm">
+                            <h2 className="text-xl font-semibold flex items-center gap-2 mb-4">
+                                <FaMapMarkerAlt /> Delivery Address
+                            </h2>
+
+                            {addresses.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    <p>No saved addresses</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 mb-6">
+                                    {addresses.map((addr) => (
+                                        <div
+                                            key={addr.id}
+                                            onClick={() => setSelectedAddressId(addr.id)}
+                                            className={`border rounded-lg p-4 cursor-pointer ${selectedAddressId === addr.id ? "border-blue-500 bg-blue-50" : "border-gray-200"
+                                                }`}
+                                        >
+                                            <p className="font-semibold">{addr.name}</p>
+                                            <p className="text-sm text-gray-600">{addr.phone}</p>
+                                            <p className="text-sm">{addr.city}, {addr.state}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <button
+                                onClick={handlePlaceOrder}
+                                disabled={placingOrder || !selectedAddressId || !product.size}
+                                className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold hover:bg-green-700 disabled:bg-gray-300"
+                            >
+                                {placingOrder ? "Processing..." : `Place Order - Size ${product.size}`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </>
     );
-
-  return (
-    <div>
-      <Navbar />
-      <div className="min-h-screen bg-gray-50 py-6">
-        <div className="max-w-7xl mx-auto px-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors font-medium text-sm"
-          >
-            <FaArrowLeft size={16} />
-            <span>Back</span>
-          </button>
-
-          <h1 className="text-3xl font-bold text-gray-800 mb-6">
-            Complete Your Purchase
-          </h1>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left - Shipping & Payment */}
-            <div className="lg:col-span-2">
-              <form
-                onSubmit={handlePlaceOrder}
-                className="bg-white rounded-lg shadow-lg p-6"
-              >
-                <div className="mb-6">
-                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <FaMapMarkerAlt className="text-green-500" /> Shipping Information
-                  </h2>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Full Name *
-                      </label>
-                      <div className="relative">
-                        <FaUser className="absolute left-3 top-3 text-gray-400" />
-                        <input
-                          type="text"
-                          name="fullName"
-                          value={formData.fullName}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email *
-                      </label>
-                      <div className="relative">
-                        <FaEnvelope className="absolute left-3 top-3 text-gray-400" />
-                        <input
-                          type="email"
-                          name="email"
-                          value={formData.email}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Phone *
-                      </label>
-                      <div className="relative">
-                        <FaPhone className="absolute left-3 top-3 text-gray-400" />
-                        <input
-                          type="tel"
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        City *
-                      </label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Address *
-                      </label>
-                      <input
-                        type="text"
-                        name="address"
-                        value={formData.address}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Payment Method */}
-                <div className="mb-6 pt-6 border-t">
-                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <FaCreditCard className="text-green-500" /> Payment Method
-                  </h2>
-                  <div className="space-y-3">
-                    {["card", "cod", "upi"].map((method) => (
-                      <label
-                        key={method}
-                        className="flex items-center p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-green-500"
-                      >
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value={method}
-                          checked={formData.paymentMethod === method}
-                          onChange={handleInputChange}
-                          className="mr-3"
-                        />
-                        <span className="font-medium capitalize">
-                          {method === "cod"
-                            ? "Cash on Delivery"
-                            : method.toUpperCase()}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-4 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {loading ? "Processing..." : "Place Order"}
-                </button>
-              </form>
-            </div>
-
-            {/* Right - Order Summary */}
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow-lg p-6 sticky top-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4">
-                  Order Summary
-                </h2>
-
-                {items.map((p) => (
-                  <div
-                    key={p.id}
-                    className="mb-4 pb-4 border-b last:border-b-0"
-                  >
-                    <img
-                      src={p.image}
-                      alt={p.name}
-                      className="w-full h-40 object-cover rounded-lg mb-2"
-                    />
-                    <h3 className="font-semibold text-gray-800">{p.name}</h3>
-                    <p className="text-sm text-gray-600">
-                      {p.kit} Kit - {p.year}/{p.year + 1}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Size:{" "}
-                      <span className="font-semibold">{p.selectedSize}</span> | Qty:{" "}
-                      <span className="font-semibold">{p.quantity}</span>
-                    </p>
-                    <p className="text-green-600 font-medium mt-1">
-                      ${(p.price * p.quantity).toFixed(2)}
-                    </p>
-                  </div>
-                ))}
-
-                <div className="pt-4 border-t text-lg font-bold flex justify-between text-gray-800">
-                  <span>Total:</span>
-                  <span className="text-rose-500">${grandTotal}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default BuyNow;

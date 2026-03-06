@@ -21,7 +21,7 @@ function Footer() {
                     <h3 className="text-lg font-semibold mb-3">Quick Links</h3>
                     <ul className="space-y-2 text-gray-400">
                         <li><Link to="/" className="hover:text-white">Home</Link></li>
-                        <li><Link to="/shop" className="hover:text-white">Shop</Link></li>
+                        <li><Link to="/products" className="hover:text-white">Shop</Link></li>
                         <li><Link to="/about" className="hover:text-white">About</Link></li>
                         <li><Link to="/contact" className="hover:text-white">Contact</Link></li>
                     </ul>

@@ -1,35 +1,35 @@
-import React, { createContext, useState, useEffect } from "react";
-import axios from "axios";
+import React, { createContext, useState, useEffect, useContext } from "react";
+import { useAuth } from "./AuthContext";
+import api from "../api/api";
 
 export const CartContext = createContext();
 
 export const CartProvider = ({ children }) => {
+  const { user } = useAuth();
   const [cartCount, setCartCount] = useState(0);
-  const userId = localStorage.getItem("userId");
 
   useEffect(() => {
     const fetchCart = async () => {
-      if (!userId) {
+      if (!user) {
         setCartCount(0);
         return;
       }
+
       try {
-        const res = await axios.get(`http://localhost:5000/users/${userId}`);
-        const cart = res.data.cart || [];
-        
-        // ✅ Calculate TOTAL QUANTITY (sum of all item quantities)
-        const totalQuantity = cart.reduce((acc, item) => acc + (item.quantity || 1), 0);
+        const res = await api.get("/user/cart"); // ← no BASE_URL, no withCredentials
+        const cartItems = res.data?.data?.Items || [];
+        const totalQuantity = cartItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
         setCartCount(totalQuantity);
       } catch (err) {
-        console.error("Error loading cart:", err);
+        console.error("Error loading cart:", err.response?.data || err);
+        setCartCount(0);
       }
     };
-    fetchCart();
-  }, [userId]);
 
-  const updateCartCount = (newCount) => {
-    setCartCount(newCount);
-  };
+    fetchCart();
+  }, [user]);
+
+  const updateCartCount = (newCount) => setCartCount(newCount);
 
   return (
     <CartContext.Provider value={{ cartCount, updateCartCount }}>
@@ -37,3 +37,5 @@ export const CartProvider = ({ children }) => {
     </CartContext.Provider>
   );
 };
+
+export const useCart = () => useContext(CartContext);

@@ -1,185 +1,212 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
-import { DollarSign, ShoppingCart, Package, Users, TrendingUp, AlertCircle } from "lucide-react";
+import {
+  DollarSign,
+  ShoppingCart,
+  Package,
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  AlertCircle,
+  ArrowUpRight,
+} from "lucide-react";
+import api from "../../../api/api";
 
 const DashboardStats = () => {
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalOrders: 0,
     totalProducts: 0,
-    totalUsers: 0,
-    monthlyGrowth: 0,
+    revenueChange: 12.5, // Mock data for trend
+    ordersChange: 8.2,
+    productsChange: -2.1,
   });
-  const [isLoading, setIsLoading] = useState(true);
+
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchStats = async () => {
-    setIsLoading(true);
-    setError(null);
     try {
-      const [usersRes, productsRes] = await Promise.all([
-        axios.get("http://localhost:5000/users"),
-        axios.get("http://localhost:5000/products"),
+      if (!isRefreshing) setLoading(true);
+      
+      const [productsRes, paymentsRes] = await Promise.all([
+        api.get("/products"),
+        api.get("/admin/payments"),
       ]);
 
-      if (!usersRes.status === 200 || !productsRes.status === 200) {
-        throw new Error("Failed to fetch data");
-      }
+      const products = productsRes.data.data;
+      const payments = paymentsRes.data.data;
 
-      const users = usersRes.data;
-      const products = productsRes.data;
+      const totalRevenue = payments.reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0
+      );
 
-      let totalRevenue = 0;
-      let totalOrders = 0;
-
-      users.forEach(user => {
-        if (user.orders?.length > 0) {
-          user.orders.forEach(order => {
-            let amount = parseFloat(order.totalAmount);
-
-            if (isNaN(amount)) {
-              amount = order.products?.reduce(
-                (sum, product) => sum + (Number(product.price) * (product.quantity || 1)),
-                0
-              ) || 0;
-            }
-
-            totalRevenue += amount;
-          });
-
-          totalOrders += user.orders.length;
-        }
-      });
-
-      setStats({
+      setStats(prev => ({
+        ...prev,
         totalRevenue,
-        totalOrders,
+        totalOrders: payments.length,
         totalProducts: products.length,
-        totalUsers: users.length,
-        monthlyGrowth: ((Math.random() * 20) + 1).toFixed(1), // Placeholder growth
-      });
-    } catch (error) {
-      console.error("Error fetching stats:", error);
-      setError("Failed to load dashboard stats. Please try again later.");
+      }));
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load dashboard stats. Please try again.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    fetchStats();
   };
 
   useEffect(() => {
     fetchStats();
   }, []);
 
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 animate-pulse">
+            <div className="flex justify-between items-start">
+              <div className="space-y-3 w-full">
+                <div className="h-4 bg-gray-200 rounded w-24"></div>
+                <div className="h-8 bg-gray-200 rounded w-32"></div>
+                <div className="h-3 bg-gray-200 rounded w-20"></div>
+              </div>
+              <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="p-3 bg-red-100 rounded-full">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+          </div>
+          <div>
+            <h3 className="text-red-900 font-semibold">Error Loading Stats</h3>
+            <p className="text-red-600 text-sm mt-1">{error}</p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="mt-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const statCards = [
     {
       title: "Total Revenue",
-      value: `$${stats.totalRevenue.toLocaleString('en-US', {
+      value: `$${stats.totalRevenue.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`,
       icon: DollarSign,
-      growth: `${stats.monthlyGrowth}%`,
-      color: "green",
+      trend: stats.revenueChange,
+      color: "emerald",
+      bgGradient: "from-emerald-500/10 to-teal-500/10",
+      iconBg: "bg-emerald-100 text-emerald-600",
     },
     {
       title: "Total Orders",
       value: stats.totalOrders.toLocaleString(),
       icon: ShoppingCart,
-      growth: "8.2%",
+      trend: stats.ordersChange,
       color: "blue",
+      bgGradient: "from-blue-500/10 to-indigo-500/10",
+      iconBg: "bg-blue-100 text-blue-600",
     },
     {
       title: "Total Products",
       value: stats.totalProducts.toLocaleString(),
       icon: Package,
-      growth: "5.1%",
-      color: "purple",
-    },
-    {
-      title: "Total Users",
-      value: stats.totalUsers.toLocaleString(),
-      icon: Users,
-      growth: "12.5%",
-      color: "orange",
+      trend: stats.productsChange,
+      color: "violet",
+      bgGradient: "from-violet-500/10 to-purple-500/10",
+      iconBg: "bg-violet-100 text-violet-600",
     },
   ];
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 max-w-full mx-auto transition-all hover:shadow-xl">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <TrendingUp className="text-blue-500" size={20} />
-          Dashboard Stats
-        </h3>
-        {/* <button
-          onClick={fetchStats}
-          className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-lg font-semibold text-gray-900">Overview</h2>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700 disabled:opacity-50"
+          title="Refresh stats"
         >
-          Refresh
-        </button> */}
+          <RefreshCw className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`} />
+        </button>
       </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {statCards.map((card, index) => (
+          <StatCard key={card.title} {...card} delay={index * 100} />
+        ))}
+      </div>
+    </div>
+  );
+};
 
-      {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, index) => (
-            <div
-              key={index}
-              className="animate-pulse bg-white rounded-2xl shadow-sm border border-gray-100 p-6"
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-2">
-                  <div className="w-24 h-4 bg-gray-200 rounded"></div>
-                  <div className="w-32 h-6 bg-gray-200 rounded"></div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 bg-gray-200 rounded"></div>
-                    <div className="w-20 h-3 bg-gray-200 rounded"></div>
-                  </div>
-                </div>
-                <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
-              </div>
+const StatCard = ({ title, value, icon: Icon, trend, bgGradient, iconBg, delay = 0 }) => {
+  const isPositive = trend >= 0;
+  const TrendIcon = isPositive ? TrendingUp : TrendingDown;
+  
+  return (
+    <div 
+      className="group relative bg-white rounded-2xl shadow-sm hover:shadow-lg border border-gray-100 p-6 transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      {/* Background gradient decoration */}
+      <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${bgGradient} rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -mr-16 -mt-16`} />
+      
+      <div className="relative flex justify-between items-start">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-gray-500">{title}</p>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight">{value}</p>
+          
+          <div className="flex items-center gap-1.5 mt-2">
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+              isPositive 
+                ? "bg-green-50 text-green-700" 
+                : "bg-red-50 text-red-700"
+            }`}>
+              <TrendIcon size={12} className={isPositive ? "" : "rotate-180"} />
+              <span>{isPositive ? "+" : ""}{trend}%</span>
             </div>
-          ))}
+            <span className="text-xs text-gray-400">vs last month</span>
+          </div>
         </div>
-      )}
-
-      {error && (
-        <div className="flex items-center justify-center gap-2 text-red-600 py-4">
-          <AlertCircle size={20} />
-          <span>{error}</span>
+        
+        <div className={`p-3.5 ${iconBg} rounded-xl shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
+          <Icon size={24} strokeWidth={2} />
         </div>
-      )}
-
-      {!isLoading && !error && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {statCards.map((stat, index) => (
-            <div
-              key={index}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-gray-600">{stat.title}</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
-                  <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp size={14} className="text-green-500" />
-                    <span className="text-xs text-green-600">{stat.growth} from last month</span>
-                  </div>
-                </div>
-                <div
-                  className={`p-3 rounded-full ${
-                    stat.color === "green" ? "bg-green-100 text-green-600" :
-                    stat.color === "blue" ? "bg-blue-100 text-blue-600" :
-                    stat.color === "purple" ? "bg-purple-100 text-purple-600" :
-                    "bg-orange-100 text-orange-600"
-                  }`}
-                >
-                  <stat.icon size={24} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
+      
+      {/* Bottom progress indicator */}
+      <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100">
+        <div 
+          className={`h-full bg-gradient-to-r ${bgGradient.replace('/10', '')} opacity-60`} 
+          style={{ width: `${Math.min(Math.abs(trend) * 5 + 20, 100)}%` }}
+        />
+      </div>
     </div>
   );
 };

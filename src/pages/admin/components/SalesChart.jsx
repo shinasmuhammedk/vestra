@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -7,7 +7,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-} from 'recharts';
+} from "recharts";
+import api from "../../../api/api";
 
 const SalesChart = () => {
   const [salesData, setSalesData] = useState([]);
@@ -18,83 +19,59 @@ const SalesChart = () => {
 
   const fetchSalesData = async () => {
     try {
-      const res = await fetch('http://localhost:5000/users'); 
-      const users = await res.json();
+      const res = await api.get("/admin/orders");
+      const orders = res.data.data || res.data;
 
-      
-      const allOrders = users.flatMap((user) =>
-        (user.orders || []).map((order) => {
-          const totalAmount =
-            parseFloat(order.totalAmount) ||
-            (order.products || []).reduce(
-              (sum, p) => sum + (Number(p.price) * (p.quantity || 1)),
-              0
-            ) ||
-            0;
-
-          
-          const orderDay = new Date(order.orderDate).toLocaleDateString('default', {
-            day: 'numeric',
-            month: 'short',
-          });
-
-          return {
-            day: orderDay,
-            totalAmount,
-            productCount: (order.products || []).reduce(
-              (count, p) => count + (p.quantity || 1),
-              0
-            ),
-          };
-        })
-      );
-
-      // Aggregate by day
       const dailySales = {};
-      allOrders.forEach((order) => {
-        if (!dailySales[order.day]) {
-          dailySales[order.day] = { sales: 0, revenue: 0 };
-        }
-        dailySales[order.day].sales += order.productCount;
-        dailySales[order.day].revenue += order.totalAmount;
-      });
 
-      // Convert object → sorted array
-      const chartData = Object.entries(dailySales)
-        .map(([day, values]) => ({
-          day,
-          sales: values.sales,
-          revenue: parseFloat(values.revenue.toFixed(2)),
-        }))
-        .sort((a, b) => {
-          // Sort by actual date (assume current month)
-          const now = new Date();
-          const parse = (d) => new Date(`${d} ${now.getFullYear()}`);
-          return parse(a.day) - parse(b.day);
+      orders.forEach((order) => {
+        const day = new Date(order.created_at).toLocaleDateString("default", {
+          day: "numeric",
+          month: "short",
         });
 
+        const revenue = Number(order.total_amount || 0);
+        const itemsSold = (order.items || []).reduce(
+          (sum, i) => sum + (i.quantity || 1),
+          0
+        );
+
+        if (!dailySales[day]) {
+          dailySales[day] = { revenue: 0, sales: 0 };
+        }
+
+        dailySales[day].revenue += revenue;
+        dailySales[day].sales += itemsSold;
+      });
+
+      const chartData = Object.entries(dailySales)
+        .map(([day, val]) => ({
+          day,
+          revenue: Number(val.revenue.toFixed(2)),
+          sales: val.sales,
+        }))
+        .sort((a, b) => new Date(a.day) - new Date(b.day));
+
       setSalesData(chartData);
-    } catch (error) {
-      console.error('Error fetching sales data:', error);
+    } catch (err) {
+      console.error("Sales analytics error:", err);
     }
   };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-gray-900">Daily Sales Analytics</h3>
-      </div>
+      <h3 className="text-lg font-semibold mb-6">Daily Sales Analytics</h3>
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={salesData}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="day" />
             <YAxis />
             <Tooltip
               formatter={(value, name) =>
-                name === 'revenue'
-                  ? [`₹${value.toLocaleString()}`, 'Revenue']
-                  : [value, 'Items Sold']
+                name === "revenue"
+                  ? [`₹${value.toLocaleString()}`, "Revenue"]
+                  : [value, "Items Sold"]
               }
             />
             <Area
@@ -103,8 +80,6 @@ const SalesChart = () => {
               stroke="#3b82f6"
               fill="#3b82f6"
               fillOpacity={0.1}
-              strokeWidth={2}
-              name="Revenue"
             />
             <Area
               type="monotone"
@@ -112,8 +87,6 @@ const SalesChart = () => {
               stroke="#10b981"
               fill="#10b981"
               fillOpacity={0.1}
-              strokeWidth={2}
-              name="Sales"
             />
           </AreaChart>
         </ResponsiveContainer>

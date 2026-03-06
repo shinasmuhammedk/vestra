@@ -28,7 +28,7 @@ const AdminDashboard = () => {
 
   const handleLogout = () => {
     if (confirm("Are you sure want to logout")){
-    localStorage.clear();
+    sessionStorage.clear();
     navigate("/login"); 
     }
   };
